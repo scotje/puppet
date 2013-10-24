@@ -384,7 +384,7 @@ EOT
       # it, but this helps us fail if that slips up and all. --daniel 2011-04-27
       Puppet::Face[:help, :current].expects(:help).never
 
-      Puppet.expects(:err).with("Could not parse application options: I don't know how to render 'interpretive-dance'")
+      Puppet.expects(:err).with(regexp_matches(/^Could not parse application options: I don't know how to render 'interpretive-dance'.*/))
 
       expect { app.run }.to exit_with 1
 

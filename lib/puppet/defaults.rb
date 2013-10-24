@@ -57,7 +57,7 @@ module Puppet
 
   define_settings(:main,
     :trace => {
-        :default  => false,
+        :default  => true,
         :type     => :boolean,
         :desc     => "Whether to print stack traces on some errors",
     },

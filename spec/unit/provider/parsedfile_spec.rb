@@ -65,6 +65,9 @@ describe Puppet::Provider::ParsedFile do
       provider.expects(:new).with(:name => 'target3_record1', :on_disk => true, :target => '/three', :ensure => :present).returns 'r3'
       provider.expects(:new).with(:name => 'target3_record2', :on_disk => true, :target => '/three', :ensure => :present).returns 'r4'
 
+      # Supress stack trace from FileReadError exception.
+      Puppet[:trace] = false
+
       provider.instances.should == %w{r1 r2 r3 r4}
     end
 
