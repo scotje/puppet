@@ -9,8 +9,13 @@ Puppet::Face.define(:parser, '0.0.1') do
 
   action :validate do
     summary _("Validate the syntax of one or more Puppet manifests.")
-    arguments _("[<manifest>] [<manifest> ...]")
+    arguments _("[--format=json] [<manifest>] [<manifest> ...]")
     returns _("Nothing, or the first syntax error encountered.")
+
+    option('--format ' + _('<json>')) do
+      summary _("Format error messages as JSON instead of default.")
+    end
+
     description <<-'EOT'
       This action validates Puppet DSL syntax without compiling a catalog or
       syncing any resources. If no manifest files are provided, it will
@@ -34,12 +39,17 @@ Puppet::Face.define(:parser, '0.0.1') do
       $ cat init.pp | puppet parser validate
     EOT
     when_invoked do |*args|
-      args.pop
+      options = args.pop
       files = args
+
+      # TODO refactor the way errors are returned from #validate_manifest so that we don't have to push
+      # the formatting down into that method
+      format = options[:format]
+
       if files.empty?
         if not STDIN.tty?
           Puppet[:code] = STDIN.read
-          validate_manifest
+          validate_manifest(nil, format)
         else
           manifest = Puppet.lookup(:current_environment).manifest
           files << manifest
@@ -49,7 +59,7 @@ Puppet::Face.define(:parser, '0.0.1') do
       missing_files = []
       files.each do |file|
         if Puppet::FileSystem.exist?(file)
-          validate_manifest(file)
+          validate_manifest(file, format)
         else
           missing_files << file
         end
@@ -75,7 +85,7 @@ Puppet::Face.define(:parser, '0.0.1') do
       * 'pn' is the Puppet Extended S-Expression Notation.
       * 'json' outputs the same graph as 'pn' but with JSON syntax.
 
-      The output will be "pretty printed" when the option --pretty is given together with --format 'pn' or 'json'. 
+      The output will be "pretty printed" when the option --pretty is given together with --format 'pn' or 'json'.
       This option has no effect on the 'old' format.
 
       The command accepts one or more manifests (.pp) files, or an -e followed by the puppet
@@ -170,7 +180,7 @@ Puppet::Face.define(:parser, '0.0.1') do
   end
 
   # @api private
-  def validate_manifest(manifest = nil)
+  def validate_manifest(manifest = nil, format = nil)
     env = Puppet.lookup(:current_environment)
     loaders = Puppet::Pops::Loaders.new(env)
     Puppet.override( {:loaders => loaders } , _('For puppet parser validate')) do
@@ -179,7 +189,13 @@ Puppet::Face.define(:parser, '0.0.1') do
         validation_environment.check_for_reparse
         validation_environment.known_resource_types.clear
       rescue => detail
-        Puppet.log_exception(detail)
+        if format == 'json'
+          require 'json'
+          puts JSON.pretty_generate(detail.to_h)
+        else
+          Puppet.log_exception(detail)
+        end
+
         exit(1)
       end
     end
