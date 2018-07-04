@@ -9,11 +9,11 @@ Puppet::Face.define(:parser, '0.0.1') do
 
   action :validate do
     summary _("Validate the syntax of one or more Puppet manifests.")
-    arguments _("[--format=json] [<manifest>] [<manifest> ...]")
+    arguments _("[<manifest>] [<manifest> ...]")
     returns _("Nothing, or the first syntax error encountered.")
 
-    option('--format ' + _('<json>')) do
-      summary _("Format error messages as JSON instead of default.")
+    option('--format json') do
+      summary _("Format output as JSON instead of default.")
     end
 
     description <<-'EOT'
@@ -42,10 +42,6 @@ Puppet::Face.define(:parser, '0.0.1') do
       options = args.pop
       files = args
 
-      # TODO refactor the way errors are returned from #validate_manifest so that we don't have to push
-      # the formatting down into that method
-      format = options[:format]
-
       if files.empty?
         if not STDIN.tty?
           Puppet[:code] = STDIN.read
@@ -56,17 +52,35 @@ Puppet::Face.define(:parser, '0.0.1') do
           Puppet.notice _("No manifest specified. Validating the default manifest %{manifest}") % { manifest: manifest }
         end
       end
+
+      parse_errors = {}
       missing_files = []
+
       files.each do |file|
         if Puppet::FileSystem.exist?(file)
-          validate_manifest(file, format)
+          error = validate_manifest(file)
+          parse_errors[file] = error if error
         else
           missing_files << file
         end
       end
+
       unless missing_files.empty?
         raise Puppet::Error, _("One or more file(s) specified did not exist:\n%{files}") % { files: missing_files.collect {|f| " " * 3 + f + "\n"} }
       end
+
+      unless parse_errors.empty?
+        if options[:format] == 'json'
+          require 'json'
+          puts JSON.pretty_generate(parse_errors.map { |file, error| [file, error.to_h] }.to_h)
+        else
+          parse_errors.each { |_, error| Puppet.log_exception(error) }
+        end
+
+        # TODO: should this raise Puppet::Error instead?
+        exit(1)
+      end
+
       nil
     end
   end
@@ -180,24 +194,20 @@ Puppet::Face.define(:parser, '0.0.1') do
   end
 
   # @api private
-  def validate_manifest(manifest = nil, format = nil)
+  def validate_manifest(manifest = nil)
     env = Puppet.lookup(:current_environment)
     loaders = Puppet::Pops::Loaders.new(env)
+
     Puppet.override( {:loaders => loaders } , _('For puppet parser validate')) do
       begin
         validation_environment = manifest ? env.override_with(:manifest => manifest) : env
         validation_environment.check_for_reparse
         validation_environment.known_resource_types.clear
-      rescue => detail
-        if format == 'json'
-          require 'json'
-          puts JSON.pretty_generate(detail.to_h)
-        else
-          Puppet.log_exception(detail)
-        end
-
-        exit(1)
+      rescue Puppet::ParseError => parse_error
+        return parse_error
       end
     end
+
+    nil
   end
 end
